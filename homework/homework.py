@@ -109,11 +109,10 @@ pipeline = Pipeline(steps=[
 # balanceada para medir la precisión del modelo.
 
 param_grid = {
-        'classifier__n_estimators': [50, 100, 200],
-        'classifier__max_depth': [None, 10, 20],
-        'classifier__min_samples_split': [2, 5],
-        'classifier__min_samples_leaf': [1, 2],
-    }
+    'classifier__n_estimators': [100, 200],
+    'classifier__max_depth': [None, 10, 20],
+    'classifier__min_samples_split': [2, 5, 10]
+}
 grid_search = GridSearchCV(estimator=pipeline, param_grid=param_grid,
                            cv=10, scoring='balanced_accuracy', n_jobs=-1, verbose=2, refit=True)
 grid_search.fit(X_train, y_train)
@@ -122,9 +121,10 @@ grid_search.fit(X_train, y_train)
 # Paso 5.
 # Guarde el modelo (comprimido con gzip) como "files/models/model.pkl.gz".
 # Recuerde que es posible guardar el modelo comprimido usanzo la libreria gzip.
-os.makedirs('files/models', exist_ok=True)
-with gzip.open('files/models/model.pkl.gz', 'wb') as f:
-    pickle.dump(grid_search, f)
+MODEL_FILENAME = "files/models/model.pkl.gz"
+os.makedirs("files/models/", exist_ok=True)
+with gzip.open(MODEL_FILENAME, "wb") as file:
+    pickle.dump(grid_search, file)
 
 
 # Paso 6.
@@ -137,21 +137,22 @@ with gzip.open('files/models/model.pkl.gz', 'wb') as f:
 #
 # {'dataset': 'train', 'precision': 0.8, 'balanced_accuracy': 0.7, 'recall': 0.9, 'f1_score': 0.85}
 # {'dataset': 'test', 'precision': 0.7, 'balanced_accuracy': 0.6, 'recall': 0.8, 'f1_score': 0.75}
-def calculate_metrics(model, x, y, dataset_name):
-    y_pred = model.predict(x)
-    metric = {
-        'type': 'metrics',
-        'dataset': dataset_name,
-        'precision': precision_score(y, y_pred, zero_division=0),
-        'balanced_accuracy': balanced_accuracy_score(y, y_pred),
-        'recall': recall_score(y, y_pred, zero_division=0),
-        'f1_score': f1_score(y, y_pred, zero_division=0)
-    }
-    return metric
 
 metrics = []
-metrics.append(calculate_metrics(grid_search, X_train, y_train, 'train'))
-metrics.append(calculate_metrics(grid_search, X_test, y_test, 'test'))
+for dataset, (X, y) in zip(['train', 'test'], [(X_train, y_train), (X_test, y_test)]):
+    y_pred = grid_search.predict(X)
+    precision = precision_score(y, y_pred)
+    balanced_acc = balanced_accuracy_score(y, y_pred)
+    recall = recall_score(y, y_pred)
+    f1 = f1_score(y, y_pred)
+    metrics.append({
+        'type': 'classification_metrics',
+        'dataset': dataset,
+        'precision': precision,
+        'balanced_accuracy': balanced_acc,
+        'recall': recall,
+        'f1_score': f1
+    })
 
 # Paso 7.
 # Calcule las matrices de confusion para los conjuntos de entrenamiento y
@@ -162,23 +163,19 @@ metrics.append(calculate_metrics(grid_search, X_test, y_test, 'test'))
 # {'type': 'cm_matrix', 'dataset': 'train', 'true_0': {"predicted_0": 15562, "predicte_1": 666}, 'true_1': {"predicted_0": 3333, "predicted_1": 1444}}
 # {'type': 'cm_matrix', 'dataset': 'test', 'true_0': {"predicted_0": 15562, "predicte_1": 650}, 'true_1': {"predicted_0": 2490, "predicted_1": 1420}}
 
-def calculate_confusion_matrix(model, x, y, dataset_name):
-    y_pred = model.predict(x)
+for dataset, (X, y) in zip(['train', 'test'], [(X_train, y_train), (X_test, y_test)]):
+    y_pred = grid_search.predict(X)
     cm = confusion_matrix(y, y_pred)
     cm_dict = {
         'type': 'cm_matrix',
-        'dataset': dataset_name,
-        'true_0': {"predicted_0": int(cm[0, 0]), "predicted_1": int(cm[0, 1])},
-        'true_1': {"predicted_0": int(cm[1, 0]), "predicted_1": int(cm[1, 1])}
+        'dataset': dataset,
+        'true_0': {'predicted_0': int(cm[0, 0]), 'predicted_1': int(cm[0, 1])},
+        'true_1': {'predicted_0': int(cm[1, 0]), 'predicted_1': int(cm[1, 1])}
     }
-    return cm_dict
-
-metrics.append(calculate_confusion_matrix(grid_search, X_train, y_train, 'train'))
-metrics.append(calculate_confusion_matrix(grid_search, X_test, y_test, 'test'))
-
+    metrics.append(cm_dict)
 
 # Guardar las métricas en un archivo JSON
-os.makedirs('files/output', exist_ok=True)
-with open('files/output/metrics.json', 'w') as f:
+os.makedirs("files/output/", exist_ok=True)
+with open("files/output/metrics.json", "w") as f:
     for metric in metrics:
-        f.write(json.dumps(metric) + '\n')
+        f.write(json.dumps(metric) + "\n")
